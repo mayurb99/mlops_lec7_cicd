@@ -53,20 +53,12 @@ jobs:
         with:
           python-version: "3.11"
 
-      # Step 3: Cache pip packages
-      # If requirements.txt hasn't changed, pip packages are cached
-      # Makes CI 2-3x faster on subsequent runs
-      - name: Cache pip dependencies
-        uses: actions/cache@v3
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
-
-      # Step 4: Install dependencies
+     
+      # Step 3: Install dependencies
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      # Step 5: Run all tests with verbose output
+      # Step 4: Run all tests with verbose output
       # -v shows each test name and pass/fail
       # If ANY test fails, this step fails → entire job fails → build-and-push blocked
       - name: Run pytest
