@@ -52,6 +52,8 @@ def load_model_func():
         logger.error(f"Model file not found: {MODEL_PATH}")
         model_info = {"status": "not_found", "model_path": MODEL_PATH}
 
+load_model_func()
+
 # 🔥 IMPORTANT: Call it immediately
 @app.on_event("startup")
 def startup():
