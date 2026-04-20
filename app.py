@@ -33,7 +33,11 @@ app = FastAPI(
 
 # ── Load model at startup ─────────────────────────────────
 MODEL_PATH = os.getenv("MODEL_PATH", "models/churn_model.pkl")
-
+# ── Feature columns ───────────────────────────────────────
+FEATURE_COLS = [
+    "age", "tenure_months", "monthly_charge",
+    "num_products", "support_calls", "has_contract"
+]
 model = None
 model_info = {}
 def load_model_func():
@@ -59,11 +63,7 @@ load_model_func()
 def startup():
     load_model_func()
 
-# ── Feature columns ───────────────────────────────────────
-FEATURE_COLS = [
-    "age", "tenure_months", "monthly_charge",
-    "num_products", "support_calls", "has_contract"
-]
+
 
 # ── Request / Response schemas ────────────────────────────
 class CustomerFeatures(BaseModel):
