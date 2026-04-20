@@ -36,9 +36,7 @@ MODEL_PATH = os.getenv("MODEL_PATH", "models/churn_model.pkl")
 
 model = None
 model_info = {}
-
-@app.on_event("startup")
-def load_model():
+def load_model_func():
     global model, model_info
     logger.info(f"Loading model from: {MODEL_PATH}")
     try:
@@ -50,10 +48,14 @@ def load_model():
             "features": FEATURE_COLS,
             "status": "loaded",
         }
-        logger.info(f"Model loaded: {type(model).__name__}")
     except FileNotFoundError:
         logger.error(f"Model file not found: {MODEL_PATH}")
         model_info = {"status": "not_found", "model_path": MODEL_PATH}
+
+# 🔥 IMPORTANT: Call it immediately
+@app.on_event("startup")
+def startup():
+    load_model_func()
 
 # ── Feature columns ───────────────────────────────────────
 FEATURE_COLS = [
