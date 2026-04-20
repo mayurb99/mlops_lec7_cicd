@@ -1,0 +1,154 @@
+# ════════════════════════════════════════════════════════
+# .github/workflows/ml-cicd.yml
+# Lecture 8 — CI/CD Demo
+#
+# Workflow 1 of 2: Code Pipeline
+# Triggered on every push to main.
+# Jobs:
+#   1. test         — runs pytest, must pass first
+#   2. build-and-push — builds Docker image, pushes to ECR
+#
+# The 'needs: test' on build-and-push means:
+#   If tests fail → build never runs → ECR stays clean
+# ════════════════════════════════════════════════════════
+
+name: ML API CI/CD
+
+# ── TRIGGERS ─────────────────────────────────────────────
+# This workflow runs on:
+#   1. Every push to the main branch
+#   2. Any manual trigger via the Actions UI button
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:         # Adds a "Run workflow" button in the Actions tab
+
+# ── GLOBAL ENVIRONMENT VARIABLES ─────────────────────────
+# Available to ALL jobs in this workflow
+# Keeps config in one place — change region here, applies everywhere
+env:
+  AWS_REGION:       us-east-1
+  ECR_REPOSITORY:   churn-api    # Must match the ECR repo name you created
+
+# ════════════════════════════════════════════════════════
+# JOB 1: TEST
+# Runs pytest on every push.
+# This job MUST pass before build-and-push runs.
+# ════════════════════════════════════════════════════════
+jobs:
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest    # Free GitHub-hosted Ubuntu VM
+
+    steps:
+      # Step 1: Clone the repository onto the runner
+      # actions/checkout is a pre-built action from the Marketplace
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Step 2: Install Python 3.11
+      # actions/setup-python installs the specified Python version
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      # Step 3: Cache pip packages
+      # If requirements.txt hasn't changed, pip packages are cached
+      # Makes CI 2-3x faster on subsequent runs
+      - name: Cache pip dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+
+      # Step 4: Install dependencies
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # Step 5: Run all tests with verbose output
+      # -v shows each test name and pass/fail
+      # If ANY test fails, this step fails → entire job fails → build-and-push blocked
+      - name: Run pytest
+        run: pytest tests/ -v --tb=short
+
+# ════════════════════════════════════════════════════════
+# JOB 2: BUILD AND PUSH TO ECR
+# Only runs if the 'test' job passed.
+# Builds Docker image and pushes to ECR with two tags:
+#   - latest         → always the newest image
+#   - sha-<commit>   → permanent audit trail tag
+# ════════════════════════════════════════════════════════
+  build-and-push:
+    name: Build and Push to ECR
+    runs-on: ubuntu-latest
+    needs: test              # ← THE MOST IMPORTANT LINE
+                             # This job only starts after 'test' completes successfully
+                             # If tests fail → this job is skipped entirely
+
+    steps:
+      # Step 1: Clone the repository
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Step 2: Configure AWS credentials
+      # Uses the three secrets stored in GitHub repo settings
+      # Secrets are NEVER printed in logs — GitHub masks them with ***
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ env.AWS_REGION }}
+
+      # Step 3: Log in to Amazon ECR
+      # This action:
+      #   - Calls ECR to get a temporary login token
+      #   - Runs docker login with that token
+      #   - Outputs the ECR registry URL (e.g. 123456789.dkr.ecr.us-east-1.amazonaws.com)
+      - name: Login to Amazon ECR
+        id: login-ecr             # id lets other steps reference this step's outputs
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # Step 4: Build, tag, and push Docker image
+      # ${{ steps.login-ecr.outputs.registry }} = ECR registry URL from step 3
+      # ${{ github.sha }} = 40-character git commit hash, e.g. a3f9d2c8b1e4...
+      #
+      # Two tags:
+      #   :latest          — always points to newest build
+      #   :sha-<commit>    — permanent, immutable, traceable to exact code
+      - name: Build, tag, and push image to ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          # Full image path: 123456789.dkr.ecr.us-east-1.amazonaws.com/churn-api
+          IMAGE=$ECR_REGISTRY/$ECR_REPOSITORY
+
+          echo "Building image: $IMAGE"
+          docker build -t $IMAGE:latest .
+
+          # Tag with git SHA for audit trail
+          # This tag is permanent — never overwritten
+          docker tag $IMAGE:latest $IMAGE:${{ github.sha }}
+
+          echo "Pushing :latest tag..."
+          docker push $IMAGE:latest
+
+          echo "Pushing :${{ github.sha }} tag..."
+          docker push $IMAGE:${{ github.sha }}
+
+          echo "Image pushed successfully!"
+          echo "Registry: $ECR_REGISTRY"
+          echo "Tags: latest, ${{ github.sha }}"
+
+      # Step 5: Verify the push (optional but good practice)
+      - name: Verify image in ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          echo "Verifying image exists in ECR..."
+          aws ecr describe-images \
+            --repository-name $ECR_REPOSITORY \
+            --image-ids imageTag=${{ github.sha }} \
+            --region $AWS_REGION
+          echo "Image verified successfully in ECR!"
