@@ -5,6 +5,8 @@ FastAPI serving endpoint for the churn prediction model
 Lecture 6 — Docker Demo
 ════════════════════════════════════════════════════════
 
+
+
 Endpoints:
   GET  /health   → health check
   GET  /info     → model info
